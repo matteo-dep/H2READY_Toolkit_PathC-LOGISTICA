@@ -1,3 +1,19 @@
+"""
+H2READY TOOLKIT - Tool 2.8: Dimensionamento e design tecno-economico HRS
+Progetto Interreg Italia-Slovenia H2READY - APE FVG
+
+COSA CAMBIA rispetto alla versione precedente
+ 1. I risultati vivono in st.session_state. Prima il blocco di export era annidato
+    dentro l'if del bottone di calcolo: al primo rerun spariva tutto, compreso il
+    campo dove digitare l'identificativo, e non si riusciva a esportare.
+ 2. La configurazione strategica entra nei calcoli. Prima era una tendina decorativa.
+    Ora governa le pressioni di erogazione, il sovradimensionamento dello stoccaggio
+    e la sorgente suggerita.
+ 3. L'Hub Intermodale eroga a 350 e 700 bar insieme: due linee, due dispenser,
+    due chiller, compressione dimensionata su ciascuna.
+ 4. Il payload esporta otto variabili invece di tre.
+"""
+
 import streamlit as st
 import numpy as np
 import os
@@ -21,11 +37,15 @@ T = {
         "logic_title": "🧠 Analisi Metodologica e Standard di Progettazione",
         "instructions_md": """
 ### 🎯 Qual è il tuo obiettivo?
-Questo strumento serve a dimensionare l'architettura tecnica e a stimare l'impatto economico di una **Stazione di Rifornimento a Idrogeno (HRS)** per mezzi pesanti.
+Questo strumento serve a dimensionare l'architettura tecnica e a stimare l'impatto economico
+di una **Stazione di Rifornimento a Idrogeno (HRS)** per mezzi pesanti.
 
 **Istruzioni:**
-1. Configura **tutti i parametri tecnici ed economici nella barra laterale sinistra**.
-2. Clicca sul bottone **'Avvia Dimensionamento Impiantistico'** qui sotto per generare il report tecno-economico unificato, inclusivo del calcolo del Break-Even Point.
+1. Scegli la **configurazione obiettivo**: determina quali pressioni la stazione deve erogare
+   e quanto margine di stoccaggio serve.
+2. Configura i **parametri tecnici ed economici** nella barra laterale.
+3. Clicca su **'Avvia Dimensionamento'** per generare il report tecno-economico.
+4. Il report resta a schermo: puoi esportarlo nel database centrale in fondo alla pagina.
         """,
         "sb_config": "🏗️ Configurazione Strategica",
         "sb_tech": "⚡ Parametri Tecnici HRS",
@@ -40,13 +60,57 @@ Questo strumento serve a dimensionare l'architettura tecnica e a stimare l'impat
         "lbl_routing": "Architettura di Compressione/Storage",
         "lbl_dispenser": "Pressione di Erogazione Finale",
         "btn_calc": "🚀 Avvia Dimensionamento Impiantistico HRS",
-        "input_id": "Codice Identificativo per esportazione (es. 030043):"
+        "input_id": "Codice Identificativo per esportazione (es. 030043):",
     }
 }
 _t = T.get(LANG, T["it"])
 
 # ==========================================
-# 2. INTESTAZIONE PRINCIPALE
+# 2. CONFIGURAZIONI STRATEGICHE
+# ==========================================
+# overcap = sovradimensionamento dello stoccaggio rispetto alla domanda giornaliera.
+#   Transito puro: arrivi concentrati ma prevedibili sul corridoio.
+#   Hub intermodale: tipologie di mezzo diverse, picchi meno correlati fra loro.
+#   Valley integrata: lo stoccaggio fa anche da polmone sulla produzione rinnovabile,
+#   che è variabile, quindi serve più margine.
+CONFIGURAZIONI = {
+    "HRS di Transito Puro (Flussi autostradali)": {
+        "chiave": "transito",
+        "pressioni": [700],
+        "overcap": 1.9,
+        "fonte_suggerita": "Carro Bombolaio (200 bar)",
+        "nota": "Erogazione a 700 bar per il solo trasporto pesante a lungo raggio. "
+                "Autobus e mezzi di piazzale non sono serviti da questa configurazione.",
+    },
+    "HRS Hub Intermodale Multi-Mezzo": {
+        "chiave": "hub",
+        "pressioni": [350, 700],
+        "overcap": 2.1,
+        "fonte_suggerita": "Pipeline Snam (30 bar)",
+        "nota": "Due linee di erogazione: 350 bar per autobus e mezzi di piazzale, "
+                "700 bar per camion e auto. Raddoppia dispenser e chiller.",
+    },
+    "HRS Valley Strategica Integrata": {
+        "chiave": "valley",
+        "pressioni": [350, 700],
+        "overcap": 2.5,
+        "fonte_suggerita": "Elettrolizzatore (20 bar)",
+        "nota": "Stazione integrata con produzione locale. Lo stoccaggio assorbe la "
+                "variabilità della fonte rinnovabile: margine più ampio.",
+    },
+}
+
+PRESSIONI_INGRESSO = {
+    "Elettrolizzatore (20 bar)": 20,
+    "Pipeline Snam (30 bar)": 30,
+    "Carro Bombolaio (200 bar)": 200,
+}
+
+# Consumi per pieno [kg]
+KG_AUTO, KG_BUS, KG_CAMION = 4.5, 30.0, 50.0
+
+# ==========================================
+# 3. INTESTAZIONE
 # ==========================================
 st.title(_t["title"])
 st.markdown(_t["credits"])
@@ -66,21 +130,17 @@ with st.expander(_t["logic_title"], expanded=False):
 st.markdown("---")
 
 # ==========================================
-# 3. BARRA LATERALE SINISTRA E LOGICA DINAMICA
+# 4. SIDEBAR
 # ==========================================
-
-# Inizializzazione variabili in session_state per i default dinamici
 if "prev_fonte" not in st.session_state:
     st.session_state.prev_fonte = "Elettrolizzatore (20 bar)"
     st.session_state.costo_molecola_in = 8.0
 
 with st.sidebar:
     with st.expander(_t["sb_config"], expanded=True):
-        config_scelta = st.selectbox(_t["lbl_conf_type"], [
-            "HRS di Transito Puro (Flussi autostradali)", 
-            "HRS Hub Intermodale Multi-Mezzo", 
-            "HRS Valley Strategica Integrata"
-        ])
+        config_scelta = st.selectbox(_t["lbl_conf_type"], list(CONFIGURAZIONI.keys()))
+        CFG = CONFIGURAZIONI[config_scelta]
+        st.caption(CFG["nota"])
 
     with st.expander(_t["sb_tech"], expanded=True):
         n_auto = st.slider(_t["lbl_cars"], 0, 100, 10, step=5)
@@ -88,14 +148,13 @@ with st.sidebar:
         n_camion = st.slider(_t["lbl_trucks"], 0, 150, 30, step=5)
         finestra_ore = st.slider(_t["lbl_window"], 1, 24, 8)
         capacity_factor = st.slider(_t["lbl_cf"], 10, 100, 75) / 100.0
-        
-        fonte_h2 = st.selectbox(_t["lbl_source"], [
-            "Elettrolizzatore (20 bar)", 
-            "Pipeline Snam (30 bar)", 
-            "Carro Bombolaio (200 bar)"
-        ])
-        
-        # Logica di aggiornamento dinamico del costo molecola
+
+        fonte_h2 = st.selectbox(
+            _t["lbl_source"], list(PRESSIONI_INGRESSO.keys()),
+            index=list(PRESSIONI_INGRESSO.keys()).index(CFG["fonte_suggerita"]),
+            help=f"Suggerita per questa configurazione: {CFG['fonte_suggerita']}",
+        )
+
         if st.session_state.prev_fonte != fonte_h2:
             if "Pipeline" in fonte_h2:
                 st.session_state.costo_molecola_in = 6.0
@@ -104,132 +163,214 @@ with st.sidebar:
             else:
                 st.session_state.costo_molecola_in = 8.0
             st.session_state.prev_fonte = fonte_h2
-            
-        routing_logic = st.selectbox(_t["lbl_routing"], ["Magazzino a Cascata (3 banchi)", "Booster Compressor (Diretta)"])
-        dispenser_press = st.radio(_t["lbl_dispenser"], ["350 bar (Bus)", "700 bar (Camion/Auto)"])
-        
+
+        routing_logic = st.selectbox(
+            _t["lbl_routing"],
+            ["Magazzino a Cascata (3 banchi)", "Booster Compressor (Diretta)"])
+
+        # La pressione di erogazione non si sceglie più: la impone la configurazione.
+        etichette = " + ".join(f"{p} bar" for p in CFG["pressioni"])
+        st.info(f"**{_t['lbl_dispenser']}:** {etichette}\n\nDeterminata dalla configurazione.")
+
     with st.expander(_t["sb_econ"], expanded=True):
-        costo_energia = st.number_input("Costo Elettricità (€/kWh)", min_value=0.05, max_value=0.50, value=0.15, step=0.01)
-        # Il value è collegato al session_state, ma resta liberamente modificabile
-        costo_molecola_in = st.number_input("Costo Acquisto/Produzione H2 (€/kg)", min_value=1.0, max_value=20.0, step=0.5, key="costo_molecola_in")
+        costo_energia = st.number_input("Costo Elettricità (€/kWh)", 0.05, 0.50, 0.15, step=0.01)
+        costo_molecola_in = st.number_input("Costo Acquisto/Produzione H2 (€/kg)",
+                                            1.0, 20.0, step=0.5, key="costo_molecola_in")
         wacc = st.slider("Costo del Capitale (WACC %)", 1, 15, 6) / 100.0
         anni_vita = st.slider("Vita Utile Impianto (Anni)", 5, 30, 15)
 
+
 # ==========================================
-# 4. MOTORE DI CALCOLO E REPORT
+# 5. MOTORE DI CALCOLO
 # ==========================================
-if st.button(_t["btn_calc"], type="primary", use_container_width=True):
-    
-    # --- 1. DOMANDA ---
-    fabbisogno_teorico = (n_auto * 4.5) + (n_bus * 30) + (n_camion * 50)
-    fabbisogno_reale_kg_giorno = fabbisogno_teorico * capacity_factor
-    
-    if fabbisogno_reale_kg_giorno == 0:
-        st.error("Inserisci almeno un veicolo commerciale per effettuare il dimensionamento.")
-        st.stop()
-        
-    # --- 2. TERMODINAMICA ---
-    Cp = 14.5; k_ad = 1.41; eta_is = 0.60; T_in = 293.15; stadi = 3; overcap = 1.9
-    P_inlet = 20 if "Elettrolizzatore" in fonte_h2 else (30 if "Pipeline" in fonte_h2 else 200)
-    P_disp = 350 if "350 bar" in dispenser_press else 700
-    P_stoccaggio = P_disp + 150 
-    
-    if "Cascata" in routing_logic:
-        eta_el = 0.88; fat_usabilita = 0.91; costo_storage_kg = 1092; ore_lavoro = 20
+def dimensiona_linea(kg_giorno, p_inlet, p_disp, routing, finestra, overcap):
+    """Dimensiona una singola linea di compressione, stoccaggio ed erogazione."""
+    Cp, k_ad, eta_is, T_in, stadi = 14.5, 1.41, 0.60, 293.15, 3
+
+    if "Cascata" in routing:
+        eta_el, fat_usabilita, costo_storage_kg, ore_lavoro = 0.88, 0.91, 1092, 20
     else:
-        eta_el = 0.92; fat_usabilita = 0.95; costo_storage_kg = 968; ore_lavoro = finestra_ore
+        eta_el, fat_usabilita, costo_storage_kg, ore_lavoro = 0.92, 0.95, 968, finestra
 
-    portata_kg_s = fabbisogno_reale_kg_giorno / (ore_lavoro * 3600)
-    stoccaggio_fisico_kg = (fabbisogno_reale_kg_giorno * overcap) / fat_usabilita
+    p_stoccaggio = p_disp + 150
+    portata_kg_s = kg_giorno / (ore_lavoro * 3600) if kg_giorno > 0 else 0.0
+    stoccaggio_kg = (kg_giorno * overcap) / fat_usabilita
 
-    beta_tot = P_stoccaggio / P_inlet
-    beta_st = beta_tot ** (1 / stadi)
+    beta_st = (p_stoccaggio / p_inlet) ** (1 / stadi)
     T_out = T_in * (beta_st ** ((k_ad - 1) / k_ad))
-    lav_is = Cp * (T_out - T_in)
-    lav_reale = (lav_is / eta_is) * stadi
-    
+    lav_reale = (Cp * (T_out - T_in) / eta_is) * stadi
+
     potenza_kW = (lav_reale * portata_kg_s) / eta_el
     consumo_kwh_kg = lav_reale / 3600 / eta_el
 
-    # --- 3. OUTPUT: TECNICA E TEMPI ---
-    st.header("⚙️ Dimensionamento Impianto e Velocità Erogazione")
-    velocita_g_s = 60 if P_disp == 700 else 120
-    tempo_camion = (50 * 1000) / velocita_g_s / 60
-    
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Domanda Nominale", f"{fabbisogno_reale_kg_giorno:,.1f} kg/giorno")
-    c2.metric("Stoccaggio Fisico", f"{stoccaggio_fisico_kg:,.0f} kg")
-    c3.metric("Potenza Compressore", f"{potenza_kW:,.1f} kW")
-    c4.metric("Consumo Compressione", f"{consumo_kwh_kg:,.2f} kWh/kg")
-    
-    st.info(f"⏱️ **Standard SAE J2601:** La velocità di rifornimento alla pompa è limitata a **{velocita_g_s} g/s**. Un pieno per un Camion Pesante (50 kg) richiederà in media **{tempo_camion:.1f} minuti**, indipendentemente dalla grandezza del compressore.")
+    capex = (stoccaggio_kg * costo_storage_kg          # stoccaggio
+             + potenza_kW * 2500                        # compressione
+             + 200000 * (1.3 if p_disp == 700 else 1.0) # dispenser
+             + (120000 if p_disp == 700 else 60000))    # chiller
 
-    # --- 4. OUTPUT: ECONOMIA (CAPEX e OPEX) ---
-    st.header("💶 Analisi Finanziaria (CAPEX e OPEX)")
-    
-    capex_storage = stoccaggio_fisico_kg * costo_storage_kg
-    capex_comp = potenza_kW * 2500
-    capex_disp = 200000 * (1.3 if P_disp == 700 else 1.0)
-    capex_chiller = 120000 if P_disp == 700 else 60000
-    capex_tot = (capex_storage + capex_comp + capex_disp + capex_chiller) * 1.25 # +25% civili
-    
+    return {
+        "p_disp": p_disp, "kg_giorno": kg_giorno, "stoccaggio_kg": stoccaggio_kg,
+        "potenza_kW": potenza_kW, "consumo_kwh_kg": consumo_kwh_kg, "capex": capex,
+        "velocita_g_s": 60 if p_disp == 700 else 120,
+    }
+
+
+def calcola():
+    """Esegue il dimensionamento completo e restituisce il dizionario dei risultati."""
+    kg_auto = n_auto * KG_AUTO * capacity_factor
+    kg_bus = n_bus * KG_BUS * capacity_factor
+    kg_camion = n_camion * KG_CAMION * capacity_factor
+    kg_totale = kg_auto + kg_bus + kg_camion
+
+    if kg_totale == 0:
+        return None
+
+    p_inlet = PRESSIONI_INGRESSO[fonte_h2]
+
+    # Ripartizione della domanda fra le linee di pressione.
+    if CFG["pressioni"] == [700]:
+        domanda = {700: kg_totale}
+    else:
+        # 350 bar: autobus e mezzi di piazzale. 700 bar: camion e auto.
+        domanda = {350: kg_bus, 700: kg_camion + kg_auto}
+
+    linee = [dimensiona_linea(kg, p_inlet, p, routing_logic, finestra_ore, CFG["overcap"])
+             for p, kg in domanda.items() if kg > 0]
+
+    capex_tot = sum(l["capex"] for l in linee) * 1.25          # +25% opere civili
+    potenza_tot = sum(l["potenza_kW"] for l in linee)
+    stoccaggio_tot = sum(l["stoccaggio_kg"] for l in linee)
+
+    # Consumo medio ponderato sui kg effettivamente compressi da ciascuna linea
+    energia_giorno = sum(l["consumo_kwh_kg"] * l["kg_giorno"] for l in linee)
+    consumo_medio = energia_giorno / kg_totale
+
     opex_fisso = capex_tot * 0.04
-    opex_energia = consumo_kwh_kg * fabbisogno_reale_kg_giorno * 365 * costo_energia
+    opex_energia = energia_giorno * 365 * costo_energia
     opex_totale = opex_fisso + opex_energia
 
+    crf = (wacc * (1 + wacc) ** anni_vita) / (((1 + wacc) ** anni_vita) - 1)
+    costo_specifico_hrs = (capex_tot * crf + opex_totale) / (kg_totale * 365)
+    break_even = st.session_state.costo_molecola_in + costo_specifico_hrs
+
+    area_netta = (stoccaggio_tot * 0.15) + (potenza_tot * 0.5)
+
+    # Classificazione AFIR sulla capacità giornaliera
+    if kg_totale >= 1000:
+        taglia = "Large (≥ 1 t/giorno, conforme AFIR)"
+    elif kg_totale >= 500:
+        taglia = "Medium (0,5 - 1 t/giorno)"
+    else:
+        taglia = "Small (< 0,5 t/giorno)"
+
+    return {
+        "config": config_scelta, "linee": linee, "kg_totale": kg_totale,
+        "stoccaggio_tot": stoccaggio_tot, "potenza_tot": potenza_tot,
+        "consumo_medio": consumo_medio, "capex_tot": capex_tot,
+        "opex_fisso": opex_fisso, "opex_energia": opex_energia, "opex_totale": opex_totale,
+        "costo_specifico_hrs": costo_specifico_hrs, "break_even": break_even,
+        "area_minima": area_netta * 9.5, "taglia": taglia, "fonte": fonte_h2,
+        "costo_molecola": st.session_state.costo_molecola_in,
+    }
+
+
+# Il calcolo scrive in session_state: i risultati sopravvivono ai rerun
+# provocati dal campo di testo e dal bottone di export.
+if st.button(_t["btn_calc"], type="primary", use_container_width=True):
+    R = calcola()
+    if R is None:
+        st.error("Inserisci almeno un veicolo per effettuare il dimensionamento.")
+        st.session_state.pop("hrs", None)
+    else:
+        st.session_state["hrs"] = R
+
+# ==========================================
+# 6. REPORT
+# ==========================================
+if "hrs" in st.session_state:
+    R = st.session_state["hrs"]
+
+    st.success(f"**Configurazione:** {R['config']}")
+
+    st.header("⚙️ Dimensionamento Impianto")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Domanda Nominale", f"{R['kg_totale']:,.1f} kg/giorno", R["taglia"])
+    c2.metric("Stoccaggio Fisico", f"{R['stoccaggio_tot']:,.0f} kg")
+    c3.metric("Potenza Compressore", f"{R['potenza_tot']:,.1f} kW")
+    c4.metric("Consumo Compressione", f"{R['consumo_medio']:,.2f} kWh/kg")
+
+    if len(R["linee"]) > 1:
+        st.subheader("Linee di erogazione")
+        for l in R["linee"]:
+            st.markdown(
+                f"- **{l['p_disp']} bar** — {l['kg_giorno']:,.1f} kg/giorno · "
+                f"stoccaggio {l['stoccaggio_kg']:,.0f} kg · "
+                f"compressore {l['potenza_kW']:,.1f} kW · "
+                f"CAPEX {l['capex']:,.0f} €"
+            )
+
+    for l in R["linee"]:
+        tempo = (50 * 1000) / l["velocita_g_s"] / 60
+        st.info(f"⏱️ **Standard SAE J2601 — linea {l['p_disp']} bar:** velocità limitata a "
+                f"**{l['velocita_g_s']} g/s**. Un pieno da 50 kg richiede circa "
+                f"**{tempo:.1f} minuti**, indipendentemente dalla taglia del compressore.")
+
+    st.header("💶 Analisi Finanziaria")
     co1, co2, co3 = st.columns(3)
-    co1.metric("CAPEX Totale (Chiavi in Mano)", f"€ {capex_tot:,.0f}")
-    co2.metric("OPEX Fisso (O&M, 4% CAPEX)", f"€ {opex_fisso:,.0f} / anno")
-    co3.metric(f"OPEX Elettrico ({costo_energia} €/kWh)", f"€ {opex_energia:,.0f} / anno")
+    co1.metric("CAPEX Totale (Chiavi in Mano)", f"€ {R['capex_tot']:,.0f}")
+    co2.metric("OPEX Fisso (O&M, 4% CAPEX)", f"€ {R['opex_fisso']:,.0f} / anno")
+    co3.metric("OPEX Elettrico", f"€ {R['opex_energia']:,.0f} / anno")
 
-    # --- 5. BREAK-EVEN POINT E SOVRAPPREZZO HRS ---
     st.header("🎯 Break-Even Point (Prezzo minimo alla pompa)")
-    
-    # Capital Recovery Factor (CRF) per l'ammortamento
-    crf = (wacc * (1 + wacc)**anni_vita) / (((1 + wacc)**anni_vita) - 1)
-    capex_annuo = capex_tot * crf
-    
-    # Calcolo del "Sovrapprezzo HRS" (Incidenza della sola stazione su ogni kg venduto)
-    costo_specifico_hrs_kg = (capex_annuo + opex_totale) / (fabbisogno_reale_kg_giorno * 365)
-    
-    # Break-Even Finale (Molecola + Stazione)
-    break_even_price = st.session_state.costo_molecola_in + costo_specifico_hrs_kg
-    
-    st.success(f"Per coprire il rientro dell'investimento ({anni_vita} anni al {wacc*100}%) e i costi operativi, il prezzo minimo di vendita alla pompa deve essere di **{break_even_price:.2f} €/kg**.")
-    
-    c_be1, c_be2, c_be3 = st.columns(3)
-    c_be1.metric("Costo Molecola in Ingresso", f"€ {st.session_state.costo_molecola_in:.2f} / kg")
-    c_be2.metric("Sovrapprezzo HRS (Ammortamento + OPEX)", f"+ € {costo_specifico_hrs_kg:.2f} / kg")
-    c_be3.metric("Prezzo Minimo di Vendita", f"€ {break_even_price:.2f} / kg")
-    
-    st.caption("ℹ️ *Il **Sovrapprezzo HRS** rappresenta il margine necessario alla stazione per ripagare i compressori, la manutenzione e l'energia elettrica. Se la domanda di veicoli è troppo bassa, questo sovrapprezzo schizza alle stelle, rendendo il carburante fuori mercato.*")
+    st.success(f"Per coprire il rientro dell'investimento e i costi operativi, il prezzo "
+               f"minimo di vendita alla pompa deve essere di **{R['break_even']:.2f} €/kg**.")
 
-    # --- 6. FOOTPRINT E ESPORTAZIONE ---
-    st.header("📐 Vincoli Spaziali e Esportazione")
-    area_netta = (stoccaggio_fisico_kg * 0.15) + (potenza_kW * 0.5)
-    st.warning(f"**Vincolo DM 23/10/2018:** Per garantire le distanze di sicurezza, il lotto di terreno deve avere una superficie minima di **{area_netta * 9.5:,.0f} m²**.")
+    b1, b2, b3 = st.columns(3)
+    b1.metric("Costo Molecola in Ingresso", f"€ {R['costo_molecola']:.2f} / kg")
+    b2.metric("Sovrapprezzo HRS", f"+ € {R['costo_specifico_hrs']:.2f} / kg")
+    b3.metric("Prezzo Minimo di Vendita", f"€ {R['break_even']:.2f} / kg")
 
+    st.caption("ℹ️ Il *sovrapprezzo HRS* è il margine necessario alla stazione per ripagare "
+               "compressori, manutenzione ed energia. Se la domanda è troppo bassa il "
+               "sovrapprezzo schizza, rendendo il carburante fuori mercato.")
+
+    st.header("📐 Vincoli Spaziali")
+    st.warning(f"**Vincolo DM 23/10/2018:** per garantire le distanze di sicurezza, il lotto "
+               f"deve avere una superficie minima di **{R['area_minima']:,.0f} m²**.")
+
+    # ==========================================
+    # 7. ESPORTAZIONE
+    # ==========================================
     st.divider()
-    id_comune_logistica = st.text_input(_t["input_id"], key="id_log")
-    
+    st.subheader("💾 Esportazione")
+
+    GOOGLE_URL = "https://script.google.com/macros/s/AKfycbwpP0x0hBnhOadXA43IieWg9EusAuhaafpyeXpyaStssDd7Qo-jwnuOttAllzz8r5JS/exec"
+
+    id_comune = st.text_input(_t["input_id"], key="id_log")
+
     if st.button("💾 Esporta Report nel Database Centrale"):
-        if not id_comune_logistica:
-            st.error("Inserisci il codice identificativo comunale prima di procedere al salvataggio.")
+        if not id_comune:
+            st.error("Inserisci il codice identificativo comunale prima di procedere.")
         else:
-            payload_logistica = {
-                "ID_ISTAT": id_comune_logistica,
-                "T28_CAPACITA_KG_GIORNO": round(fabbisogno_reale_kg_giorno, 1),
-                "T28_CAPEX_COMPLESSIVO_EURO": round(capex_tot, 0),
-                "T28_BREAK_EVEN_EURO_KG": round(break_even_price, 2)
+            payload = {
+                "ID_ISTAT": id_comune,
+                "T28_CONFIGURAZIONE": R["config"],
+                "T28_CAPACITA_KG_GIORNO": round(R["kg_totale"], 1),
+                "T28_TAGLIA_HRS": R["taglia"],
+                "T28_STRATEGIA_SUPPLY": R["fonte"],
+                "T28_POTENZA_COMPRESSORE_KW": round(R["potenza_tot"], 1),
+                "T28_AREA_MINIMA_MQ": round(R["area_minima"], 0),
+                "T28_CAPEX_COMPLESSIVO_EURO": round(R["capex_tot"], 0),
+                "T28_BREAK_EVEN_EURO_KG": round(R["break_even"], 2),
             }
-            GOOGLE_URL = "https://script.google.com/macros/s/AKfycbwpP0x0hBnhOadXA43IieWg9EusAuhaafpyeXpyaStssDd7Qo-jwnuOttAllzz8r5JS/exec"
             try:
-                headers = {'Content-Type': 'application/json'}
-                response = requests.post(GOOGLE_URL, data=json.dumps(payload_logistica), headers=headers, allow_redirects=True)
-                if response.status_code in [200, 201]:
+                resp = requests.post(GOOGLE_URL, data=json.dumps(payload),
+                                     headers={"Content-Type": "application/json"},
+                                     allow_redirects=True, timeout=20)
+                if resp.status_code in (200, 201):
                     st.success("✅ Dati del design impiantistico trasmessi con successo!")
                     st.balloons()
                 else:
-                    st.error(f"Errore di sincronizzazione col foglio centrale (Codice {response.status_code})")
+                    st.error(f"Errore di sincronizzazione (codice {resp.status_code})")
             except Exception as e:
-                st.error(f"Errore durante l'invio HTTP: {e}")
+                st.error(f"Errore di connessione: {e}")
