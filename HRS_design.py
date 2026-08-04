@@ -366,11 +366,17 @@ if "hrs" in st.session_state:
             try:
                 resp = requests.post(GOOGLE_URL, data=json.dumps(payload),
                                      headers={"Content-Type": "application/json"},
-                                     allow_redirects=True, timeout=20)
+                                     allow_redirects=True, timeout=60)
                 if resp.status_code in (200, 201):
                     st.success("✅ Dati del design impiantistico trasmessi con successo!")
+                    st.caption(f"Risposta del server: {resp.text}")
                     st.balloons()
                 else:
                     st.error(f"Errore di sincronizzazione (codice {resp.status_code})")
+            except requests.exceptions.ReadTimeout:
+                st.warning("⏳ Il server non ha risposto entro il tempo massimo. "
+                           "Quasi sempre significa che i dati **sono stati scritti** "
+                           "e solo la conferma è andata persa: controlla la riga del "
+                           "Comune sul foglio prima di ripetere l'invio.")
             except Exception as e:
                 st.error(f"Errore di connessione: {e}")
