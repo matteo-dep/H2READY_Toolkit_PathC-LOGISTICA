@@ -125,6 +125,17 @@ KG_AUTO, KG_BUS, KG_CAMION = 4.5, 30.0, 50.0
 # ==========================================
 st.title(_t["title"])
 st.markdown(_t["credits"])
+st.markdown("""
+    <p style='font-size: 0.8rem; color: gray;'>
+        🌐 Progetto: <a href='https://www.ita-slo.eu/en/h2ready' target='_blank'>Interreg H2Ready</a> |
+        🏠 Sito Ente: <a href='https://www.ape.fvg.it/' target='_blank'>APE FVG</a> |
+        📧 Contatto: <a href='mailto:matteo.depiccoli@ape.fvg.it'>matteo.depiccoli@ape.fvg.it</a>
+    </p>
+""", unsafe_allow_html=True)
+st.divider()
+
+st.title(_t["title"])
+st.markdown(_t["credits"])
 st.divider()
 
 with st.expander(_t["instr_title"], expanded=True):
@@ -139,17 +150,6 @@ with st.expander(_t["logic_title"], expanded=False):
         st.caption("ℹ️ File di analisi metodologica estesa caricato esternamente.")
 
 st.markdown("---")
-
-st.title(_t["title"])
-st.markdown(_t["credits"])
-st.markdown("""
-    <p style='font-size: 0.8rem; color: gray;'>
-        🌐 Progetto: <a href='https://www.ita-slo.eu/en/h2ready' target='_blank'>Interreg H2Ready</a> |
-        🏠 Sito Ente: <a href='https://www.ape.fvg.it/' target='_blank'>APE FVG</a> |
-        📧 Contatto: <a href='mailto:matteo.depiccoli@ape.fvg.it'>matteo.depiccoli@ape.fvg.it</a>
-    </p>
-""", unsafe_allow_html=True)
-st.divider()
 
 # ==========================================
 # 4. SIDEBAR
