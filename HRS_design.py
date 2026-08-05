@@ -29,6 +29,8 @@ LANG = LANG_OPTIONS[lang_choice]
 
 T = {
     "it": {
+        "title": "🚀 H2READY TOOLKIT - Tool 2.1: Scouting aziende HTA e RED III",
+        "credits": "Sviluppato all'interno del progetto [INTERREG H2Ready](https://www.ita-slo.eu/en/h2ready) da **Matteo De Piccoli - [APE FVG](https://www.ape.fvg.it/)**"
         "title": "🚀 H2READY TOOLKIT - Tool 2.8: Dimensionamento e Design Tecno-Economico HRS",
         "credits": "Sviluppato all'interno del progetto [INTERREG H2Ready](https://www.ita-slo.eu/en/h2ready) da **Matteo De Piccoli - [APE FVG](https://www.ape.fvg.it/)**",
         "instr_title": "📖 GUIDA OPERATIVA (Leggi prima di iniziare)",
@@ -137,6 +139,17 @@ with st.expander(_t["logic_title"], expanded=False):
         st.caption("ℹ️ File di analisi metodologica estesa caricato esternamente.")
 
 st.markdown("---")
+
+st.title(_t["title"])
+st.markdown(_t["credits"])
+st.markdown("""
+    <p style='font-size: 0.8rem; color: gray;'>
+        🌐 Progetto: <a href='https://www.ita-slo.eu/en/h2ready' target='_blank'>Interreg H2Ready</a> |
+        🏠 Sito Ente: <a href='https://www.ape.fvg.it/' target='_blank'>APE FVG</a> |
+        📧 Contatto: <a href='mailto:matteo.depiccoli@ape.fvg.it'>matteo.depiccoli@ape.fvg.it</a>
+    </p>
+""", unsafe_allow_html=True)
+st.divider()
 
 # ==========================================
 # 4. SIDEBAR
