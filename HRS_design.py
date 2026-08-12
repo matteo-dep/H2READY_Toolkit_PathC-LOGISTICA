@@ -139,6 +139,46 @@ st.markdown("""
 """, unsafe_allow_html=True)
 st.divider()
 
+# --- Comune e dati ereditati dal questionario 2.7 -------------------------
+H.intestazione_comune(comune, "Tool 2.8 · Dimensionamento della stazione di rifornimento")
+
+_tgm = H.valore(comune, "T27_TGM_CAMION", 0) or 0
+_snam = H.valore(comune, "T27_DISTANZA_SNAM_KM", None)
+_voci, _avvisi = [], []
+
+if _tgm > 0:
+    _voci.append(("Traffico pesante", f"{_tgm:,.0f} mezzi/giorno", "questionario 2.7"))
+else:
+    _avvisi.append(("warning", "Il questionario 2.7 non riporta un traffico pesante: "
+                               "il valore va inserito a mano nella barra laterale."))
+if _snam is not None:
+    _voci.append(("Distanza dalla dorsale H2", f"{_snam:,.1f} km", "questionario 2.7"))
+
+for _col, _et in (("T27_FLAG_AFIR_GAP", "Colma un vuoto della rete AFIR"),
+                  ("T27_FLAG_HUB_MERCI", "Hub merci o interporti entro 5 km"),
+                  ("T27_FLAG_SINERGIA_HTA", "Distretto Hard-to-Abate confinante"),
+                  ("T27_FLAG_ACCORDI_FILIERA", "Accordi di filiera già attivi"),
+                  ("T27_FLAG_PUMS", "Idrogeno già nel PUMS")):
+    if not H.vuoto(comune.get(_col)):
+        _voci.append((_et, "Sì" if H.vero(comune[_col]) else "No", "questionario 2.7"))
+
+_prod_b = H.valore(comune, "T26_PRODUZIONE_H2_TON_ANNO", 0) or 0
+if _prod_b > 0:
+    _voci.append(("Produzione locale prevista", f"{_prod_b:,.1f} t/anno", "tool 2.6"))
+
+if not H.vero(comune.get("T27_FLAG_AREE_700BAR")) and not H.vuoto(comune.get("T27_FLAG_AREE_700BAR")):
+    _avvisi.append(("warning", "Dal 2.7 non risultano aree a piano regolatore compatibili "
+                               "con lo stoccaggio a 700 bar: verificare con l'ufficio "
+                               "urbanistica prima di dimensionare la stazione."))
+
+H.scheda_dati("📥 Dati ereditati dai questionari precedenti", _voci, _avvisi)
+
+# --- Configurazione suggerita dai dati -----------------------------------
+_modo_sugg, _perche = H.modalita_2_8(comune)
+_CHIAVI = {c["chiave"]: nome for nome, c in CONFIGURAZIONI.items()}
+_config_default = _CHIAVI.get(_modo_sugg, list(CONFIGURAZIONI.keys())[0])
+st.info(f"**Configurazione suggerita: {_config_default}**\n\n{_perche}")
+
 with st.expander(_t["instr_title"], expanded=True):
     st.markdown(_t["instructions_md"])
 
@@ -161,18 +201,25 @@ if "prev_fonte" not in st.session_state:
 
 with st.sidebar:
     with st.expander(_t["sb_config"], expanded=True):
-        config_scelta = st.selectbox(_t["lbl_conf_type"], list(CONFIGURAZIONI.keys()))
+        _opz = list(CONFIGURAZIONI.keys())
+        config_scelta = st.selectbox(_t["lbl_conf_type"], _opz,
+                                     index=_opz.index(_config_default))
         CFG = CONFIGURAZIONI[config_scelta]
         st.caption(CFG["nota"])
 
     with st.expander(_t["sb_scen"], expanded=True):
-        scen_on = st.checkbox(_t["scen_on"], value=False, help=_t["scen_help"])
+        scen_on = st.checkbox(_t["scen_on"], value=_tgm > 0, help=_t["scen_help"])
         if scen_on:
             orizzonte = st.selectbox(_t["scen_year"], list(SCENARI.keys()))
-            tgm_camion = st.number_input(_t["scen_tgm"], 0, 50000, 5000, step=100,
-                                         help=_t["scen_tgm_help"])
+            tgm_camion = st.number_input(_t["scen_tgm"], 0, 50000,
+                                         int(min(_tgm, 50000)) if _tgm > 0 else 5000,
+                                         step=100, help=_t["scen_tgm_help"])
             quota_fcev = st.slider(_t["scen_share"], 0.0, 60.0, SCENARI[orizzonte], step=0.5)
-            quota_cattura = st.slider(_t["scen_capture"], 1, 100, 10,
+            # con un hub merci o accordi di filiera i mezzi rientrano in deposito:
+            # la stazione ne cattura una quota molto più alta che sul solo transito
+            _cattura_def = 25 if (H.vero(comune.get("T27_FLAG_HUB_MERCI")) or
+                                  H.vero(comune.get("T27_FLAG_ACCORDI_FILIERA"))) else 10
+            quota_cattura = st.slider(_t["scen_capture"], 1, 100, _cattura_def,
                                       help=_t["scen_capture_help"])
             n_camion = int(round(tgm_camion * quota_fcev / 100.0 * quota_cattura / 100.0))
             st.markdown(_t["scen_result"].format(tgm=tgm_camion, s=quota_fcev,
@@ -448,12 +495,12 @@ if "hrs" in st.session_state:
 
     GOOGLE_URL = "https://script.google.com/macros/s/AKfycbwpP0x0hBnhOadXA43IieWg9EusAuhaafpyeXpyaStssDd7Qo-jwnuOttAllzz8r5JS/exec"
 
-    id_comune = st.text_input(_t["input_id"], key="id_log")
+    id_comune = H.testo(comune, H.COL_ID)
+    st.caption(f"I dati verranno associati a {H.testo(comune, H.COL_NOME)} "
+               f"(ID {id_comune}).")
 
     if st.button("💾 Esporta Report nel Database Centrale"):
-        if not id_comune:
-            st.error("Inserisci il codice identificativo comunale prima di procedere.")
-        else:
+        if True:
             payload = {
                 "ID_ISTAT": id_comune,
                 "T28_CONFIGURAZIONE": R["config"],
@@ -466,9 +513,10 @@ if "hrs" in st.session_state:
                 "T28_CAPEX_COMPLESSIVO_EURO": round(R["capex_tot"], 0),
                 "T28_BREAK_EVEN_EURO_KG": round(R["break_even"], 2),
             }
-            if R.get("scen_on"):
-                payload["T28_ORIZZONTE"] = R["orizzonte"]
-                payload["T28_QUOTA_FCEV_PERC"] = round(R["quota_fcev"], 1)
+            # l'orizzonte serve al cronoprogramma dell'action plan: si esporta
+            # sempre, anche quando i mezzi sono stati inseriti a mano
+            payload["T28_ORIZZONTE"] = R["orizzonte"] if R.get("scen_on") else "attuale"
+            payload["T28_QUOTA_FCEV_PERC"] = round(R["quota_fcev"], 1) if R.get("scen_on") else 0.0
 
             try:
                 resp = requests.post(GOOGLE_URL, data=json.dumps(payload),
@@ -487,3 +535,7 @@ if "hrs" in st.session_state:
                            "ripetere l'invio.")
             except Exception as e:
                 st.error(f"Errore di connessione: {e}")
+
+st.divider()
+st.subheader("Prosegui il percorso")
+H.mostra_prossimi_tool(comune, lingua=LANG)
