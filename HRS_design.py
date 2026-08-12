@@ -36,8 +36,8 @@ if comune is None:
 
 T = {
     "it": {
-        # "title": "🚀 H2READY TOOLKIT - Tool 2.8: Dimensionamento e Design Tecno-Economico HRS",
-        # "credits": "Sviluppato all'interno del progetto [INTERREG H2Ready](https://www.ita-slo.eu/en/h2ready) da **Matteo De Piccoli - [APE FVG](https://www.ape.fvg.it/)**",
+        "title": "🚀 H2READY TOOLKIT - Tool 2.8: Dimensionamento e Design Tecno-Economico HRS",
+        "credits": "Sviluppato all'interno del progetto [INTERREG H2Ready](https://www.ita-slo.eu/en/h2ready) da **Matteo De Piccoli - [APE FVG](https://www.ape.fvg.it/)**",
         "instr_title": "📖 GUIDA OPERATIVA (Leggi prima di iniziare)",
         "logic_title": "🧠 Analisi Metodologica e Standard di Progettazione",
         "instructions_md": """
