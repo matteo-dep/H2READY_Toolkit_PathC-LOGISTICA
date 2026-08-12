@@ -139,10 +139,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 st.divider()
 
-st.title(_t["title"])
-st.markdown(_t["credits"])
-st.divider()
-
 with st.expander(_t["instr_title"], expanded=True):
     st.markdown(_t["instructions_md"])
 
