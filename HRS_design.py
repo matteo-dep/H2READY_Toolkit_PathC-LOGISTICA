@@ -542,4 +542,4 @@ if resp.status_code in (200, 201):
                 st.success("✅ Dati trasmessi correttamente al database centrale.")
                 st.caption(f"Risposta del server: {resp.text}")
                 st.balloons()
-                H.dopo_salvataggio(comune, lingua=lang)      # <-- aggiungere
+                H.dopo_salvataggio(comune, lingua=LANG)      # <-- aggiungere
