@@ -518,6 +518,7 @@ if "hrs" in st.session_state:
             payload["T28_ORIZZONTE"] = R["orizzonte"] if R.get("scen_on") else "attuale"
             payload["T28_QUOTA_FCEV_PERC"] = round(R["quota_fcev"], 1) if R.get("scen_on") else 0.0
 
+            salvato = False
             try:
                 resp = requests.post(GOOGLE_URL, data=json.dumps(payload),
                                      headers={"Content-Type": "application/json"},
@@ -526,6 +527,7 @@ if "hrs" in st.session_state:
                     st.success("✅ Dati del design impiantistico trasmessi con successo!")
                     st.caption(f"Risposta del server: {resp.text}")
                     st.balloons()
+                    salvato = True
                 else:
                     st.error(f"Errore di sincronizzazione (codice {resp.status_code})")
             except requests.exceptions.ReadTimeout:
@@ -533,13 +535,9 @@ if "hrs" in st.session_state:
                            "significa che i dati **sono stati scritti** e solo la conferma è "
                            "andata persa: controlla la riga del Comune sul foglio prima di "
                            "ripetere l'invio.")
+                salvato = True
             except Exception as e:
                 st.error(f"Errore di connessione: {e}")
 
-st.divider()
-st.subheader("Prosegui il percorso")
-if resp.status_code in (200, 201):
-                st.success("✅ Dati trasmessi correttamente al database centrale.")
-                st.caption(f"Risposta del server: {resp.text}")
-                st.balloons()
-                H.dopo_salvataggio(comune, lingua=LANG)      # <-- aggiungere
+            if salvato:
+                H.dopo_salvataggio(comune, lingua=LANG)
