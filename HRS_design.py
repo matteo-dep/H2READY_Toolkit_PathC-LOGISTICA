@@ -21,7 +21,7 @@ import json
 # ==========================================
 # 1. CONFIGURAZIONE PAGINA E LINGUA
 # ==========================================
-st.set_page_config(page_title="H2READY TOOLKIT - Tool 2.8", layout="wide")
+st.set_page_config(page_title="H2READY TOOLKIT - Tool 2.8: Dimensionamento HRS", layout="wide")
 
 LANG_OPTIONS = {"Italiano": "it", "English": "en", "Slovenščina": "sl"}
 lang_choice = st.sidebar.selectbox("🌐 Lingua / Language / Jezik", list(LANG_OPTIONS.keys()))
@@ -29,7 +29,7 @@ LANG = LANG_OPTIONS[lang_choice]
 
 import h2ready as H
 
-comune = H.blocco_accesso("Tool 2.8 — Dimensionamento HRS",
+comune = H.blocco_accesso("H2READY TOOLKIT - Tool 2.8: Dimensionamento HRS",
                           percorso="C", avanzato=True, lingua=LANG)
 if comune is None:
     st.stop()
